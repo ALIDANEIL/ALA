@@ -1,0 +1,8 @@
+{
+  "name": "ALA",
+  "short_name": "ALA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#10131a",
+  "theme_color": "#e06c75"
+}
