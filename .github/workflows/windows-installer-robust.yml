@@ -1,0 +1,77 @@
+name: Windows Installer Robust
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-installer-robust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-installer:
+    name: Build ALA_Setup.exe
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Resolve Inno Setup
+        shell: pwsh
+        run: |
+          $candidates = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe",
+            "C:\Program Files (x86)\Inno Setup 5\ISCC.exe"
+          )
+          foreach ($candidate in $candidates) {
+            if (Test-Path $candidate) {
+              "ISCC_PATH=$candidate" | Out-File -FilePath $env:GITHUB_ENV -Append
+              Write-Host "Found preinstalled Inno Setup: $candidate"
+              exit 0
+            }
+          }
+          Write-Host "Inno Setup not preinstalled. Installing..."
+          if (Get-Command choco -ErrorAction SilentlyContinue) {
+            choco install innosetup -y --no-progress --force
+          } elseif (Get-Command winget -ErrorAction SilentlyContinue) {
+            winget install --id JRSoftware.InnoSetup -e --silent --accept-package-agreements --accept-source-agreements
+          } else {
+            throw "Neither Chocolatey nor Winget is available on this runner."
+          }
+          foreach ($candidate in $candidates) {
+            if (Test-Path $candidate) {
+              "ISCC_PATH=$candidate" | Out-File -FilePath $env:GITHUB_ENV -Append
+              Write-Host "Installed Inno Setup at $candidate"
+              exit 0
+            }
+          }
+          throw "Inno Setup installation completed but ISCC.exe still not found."
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process Bypass -Force
+          .\build-ala-installer.ps1 -ISCCPath "$env:ISCC_PATH" -SkipPortableBuild
+          if (-not (Test-Path .\dist\ALA\ALA.exe)) {
+            .\build-windows-portable-robust.ps1
+          }
+          .\build-ala-installer.ps1 -ISCCPath "$env:ISCC_PATH" -SkipPortableBuild
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALA_Setup
+          path: installer\output\ALA_Setup.exe
+          if-no-files-found: error
+          retention-days: 14
